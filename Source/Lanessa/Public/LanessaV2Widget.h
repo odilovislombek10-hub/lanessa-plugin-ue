@@ -573,6 +573,11 @@ private:
 	TSharedRef<SWidget> BuildSidePanelCatListContent(const FString& Title, const FString& Sub, const FString& PanelTag);
 	TSharedRef<SWidget> BuildCategoryRow(const FString& PanelTag, const FString& Title, const FLanessaV2CategoryDef& Cat);
 	TSharedRef<SWidget> BuildChipCard();
+	void RefreshEnvironmentCaption();
+	// UDS faqat kesh eskirganda qidiriladi; sana va vaqtga yozilmaydi.
+	TWeakObjectPtr<class AActor> EnvironmentSky;
+	float EnvironmentCaptionRefreshLeft = 0.f;
+	FText EnvironmentCaption = FText::FromString(TEXT("—"));
 	TSharedRef<SWidget> BuildFloorRail();
 	TSharedRef<SWidget> BuildPoiCard();
 	TSharedRef<SWidget> BuildPlanModal();

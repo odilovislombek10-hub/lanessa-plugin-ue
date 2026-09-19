@@ -1,5 +1,6 @@
 ﻿#include "LanessaV2Widget.h"
 #include "LanessaDayNight.h"
+#include "LanessaDayNightSettings.h"
 #include "LanessaWalkPointsWidget.h"
 #include "LanessaLineIcon.h"
 #include "LanessaCustomShapes.h"
@@ -31,6 +32,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "UObject/UObjectIterator.h"
+#include "UObject/UnrealType.h"
 #include "StructUtils/UserDefinedStruct.h"
 #include "Engine/DataTable.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -1271,9 +1273,77 @@ TArray<FString> ULanessaV2Widget::ComputeMatchingPoiIds() const
 	return Result;
 }
 
+static bool LanessaReadDouble(AActor* Actor, const TCHAR* Prefix, double& Out);
+
+void ULanessaV2Widget::RefreshEnvironmentCaption()
+{
+	UWorld* World = GetWorld();
+	AActor* Sky = EnvironmentSky.Get();
+	if (!Sky || Sky->GetWorld() != World)
+	{
+		EnvironmentSky.Reset();
+		Sky = nullptr;
+		const FString& Prefix = ULanessaDayNightSettings::Get().UdsActorClassPrefix;
+		if (World && !Prefix.IsEmpty())
+		{
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (IsValid(*It) && It->GetClass()->GetName().StartsWith(Prefix))
+				{
+					Sky = *It;
+					EnvironmentSky = Sky;
+					break;
+				}
+			}
+		}
+	}
+	// Actor hali yuklanmagan bo'lsa, qayta qidirish har kadrda bajarilmaydi.
+	EnvironmentCaptionRefreshLeft = Sky ? 0.25f : 2.f;
+	FText NewCaption = FText::FromString(TEXT("—"));
+	const FIntProperty* MonthProperty = Sky ? FindFProperty<FIntProperty>(Sky->GetClass(), TEXT("Month")) : nullptr;
+	if (MonthProperty)
+	{
+		const int32 Month = MonthProperty->GetPropertyValue_InContainer(Sky);
+		static const TCHAR* Months[] = { TEXT("YANVAR"), TEXT("FEVRAL"), TEXT("MART"), TEXT("APREL"),
+			TEXT("MAY"), TEXT("IYUN"), TEXT("IYUL"), TEXT("AVGUST"), TEXT("SENTYABR"),
+			TEXT("OKTYABR"), TEXT("NOYABR"), TEXT("DEKABR") };
+		if (Month >= 1 && Month <= 12)
+		{
+			FString Caption = Months[Month - 1];
+			double TimeOfDay = 0., Sunrise = 0., Sunset = 0.;
+			const FBoolProperty* Simulation = FindFProperty<FBoolProperty>(Sky->GetClass(), TEXT("Simulate Real Sun"));
+			if (Simulation)
+			{
+				const bool bSimulated = Simulation->GetPropertyValue_InContainer(Sky);
+				// Yorliq UDSning amaldagi jadvalini ko'rsatadi; lampalarning 17:00 chegarasi ishlatilmaydi.
+				if (LanessaReadDouble(Sky, TEXT("Time of Day"), TimeOfDay)
+					&& LanessaReadDouble(Sky, bSimulated ? TEXT("Simulated Sunrise Time") : TEXT("Dawn Time"), Sunrise)
+					&& LanessaReadDouble(Sky, bSimulated ? TEXT("Simulated Sunset Time") : TEXT("Dusk Time"), Sunset)
+					&& FMath::IsFinite(TimeOfDay) && FMath::IsFinite(Sunrise) && FMath::IsFinite(Sunset)
+					&& Sunrise >= 0. && Sunset <= 2400. && Sunrise < Sunset)
+				{
+					TimeOfDay = FMath::Fmod(FMath::Fmod(TimeOfDay, 2400.) + 2400., 2400.);
+					Caption += TimeOfDay >= Sunrise && TimeOfDay < Sunset ? TEXT(" · KUNDUZI") : TEXT(" · TUN");
+				}
+			}
+			NewCaption = FText::FromString(Caption);
+		}
+	}
+	if (!EnvironmentCaption.EqualTo(NewCaption))
+	{
+		EnvironmentCaption = NewCaption;
+		Invalidate(EInvalidateWidgetReason::Paint);
+	}
+}
+
 void ULanessaV2Widget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+	EnvironmentCaptionRefreshLeft -= InDeltaTime;
+	if (EnvironmentCaptionRefreshLeft <= 0.f)
+	{
+		RefreshEnvironmentCaption();
+	}
 	// mirrors launchTourToast()'s setTimeout(..., 1800) auto-hide
 	if (ToastTimeLeft > 0.f)
 	{
@@ -2011,10 +2081,11 @@ TSharedRef<SWidget> ULanessaV2Widget::BuildChipCard()
 					.Font(D(28)).ColorAndOpacity(FSlateColor(Paper))
 				]
 				+ SHorizontalBox::Slot().FillWidth(1.f).HAlign(HAlign_Right).VAlign(VAlign_Bottom).Padding(0.f,0.f,0.f,4.f)
-				[SNew(STextBlock).Text(FText::FromString(TEXT("+27°C"))).Font(F(12)).ColorAndOpacity(FSlateColor(OliveGlow))]
+				// Ishonchli harorat readbacki ulanmaguncha uydirma son ko'rsatilmaydi.
+				[SNew(STextBlock).Text(FText::FromString(TEXT("—°C"))).Font(F(12)).ColorAndOpacity(FSlateColor(OliveGlow))]
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f,3.f,0.f,0.f)
-			[SNew(STextBlock).Text(FText::FromString(TEXT("IYUL · KUNDUZI"))).Font(F(9)).ColorAndOpacity(FSlateColor(TextDim))]
+			[SNew(STextBlock).Text(TAttribute<FText>::Create([this]() { return EnvironmentCaption; })).Font(F(9)).ColorAndOpacity(FSlateColor(TextDim))]
 
 			+ SVerticalBox::Slot().AutoHeight().Padding(3.f,20.f,3.f,10.f)
 			[
