@@ -2073,9 +2073,9 @@ TSharedRef<SWidget> ULanessaV2Widget::BuildChipCard()
 					// same TimePct the drag track and Ultra Dynamic Sky sync (OnTimePctChanged) use.
 					SNew(STextBlock)
 					.Text(TAttribute<FText>::Create([this]() {
-						const float Hours = 6.f + TimePct * 16.f;
-						const int32 H = FMath::FloorToInt(Hours);
-						const int32 M = FMath::FloorToInt((Hours - H) * 60.f);
+						const int32 TotalMinutes = FMath::RoundToInt((6.f + TimePct * 16.f) * 60.f);
+						const int32 H = TotalMinutes / 60;
+						const int32 M = TotalMinutes % 60;
 						return FText::FromString(FString::Printf(TEXT("%02d:%02d"), H, M));
 					}))
 					.Font(D(28)).ColorAndOpacity(FSlateColor(Paper))

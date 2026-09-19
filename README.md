@@ -7,6 +7,10 @@ No Blueprint assets — every widget is built in C++/Slate, so the UI is version
 and the Blueprint side only supplies data (categories, POIs, unit rows) through `BlueprintCallable`
 entry points.
 
+How the widgets reach the scene — the setup order, each delegate's Blueprint counterpart, and
+the reasoning behind the design — is in [`docs/WIRING.md`](docs/WIRING.md)
+([o'zbekcha](docs/ULANISH_TARTIBI.md)).
+
 ## Modules
 
 | File | What it is |
