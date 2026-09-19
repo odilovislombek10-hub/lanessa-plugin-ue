@@ -63,3 +63,8 @@ Unreal Engine 5.8. Module dependencies: `Core`, `CoreUObject`, `Engine`, `InputC
 Copy the folder to `<YourProject>/Plugins/Lanessa`, then regenerate project files and build.
 `Config/DefaultEngine.ini` inside the plugin carries `CoreRedirects` so Blueprints that referenced
 these classes before they were extracted into a plugin still resolve.
+
+The widgets also load a logo and five weather icons from the host project's content by absolute
+path. Those assets, and the rest of the project-side dependencies, are listed in
+[`ProjectAssets/README.md`](ProjectAssets/README.md) — without them the UI builds and runs, but
+draws no logo and no weather icons.
