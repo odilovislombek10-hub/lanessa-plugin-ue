@@ -136,7 +136,7 @@ handler runs: `Season Mode = Manual Setting` → `Season = 0..3` → `Update Sea
 | `OnSearchApplied(MatchingPoiIds)` | `Show_POI` for every id in the array, `Hide_POI` for the rest |
 | `OnFloorSelected(Floor)` | Finds the matching `BP_FloorSectionMarker` and calls `Select_POI` |
 | `OnCategoryToggled(...)` | Shows/hides by category |
-| `OnResetSectionView()` | Returns the section box to `Bounds = 0` |
+| `Reset_SectionView` | Returns the section box to its initial volume |
 
 **What `PoiId` is.** The actor's own object `Name` (e.g. `BP_POI_C_12`). Never shown on screen,
 used only to find the actor again. It was chosen because it is stable at runtime, unique, and
@@ -145,6 +145,34 @@ obtainable without loading the actor.
 **Why `OnFloorSelected` exists.** Clicking a floor number used to only highlight it, with no
 functional effect. It now behaves identically to clicking the 3D floor icon — the rule being that
 two entry points to the same action must produce the same result.
+
+### CHIQISH undoes two things
+
+Pressing CHIQISH in the section panel has to reverse two separate effects, and they have different
+owners:
+
+```
+CHIQISH clicked
+  |- Reset_SectionView.Broadcast()        -> BP_Explorer_PC restores the cut box
+  \- LanessaRestoreQirqimBuilding()       -> brings the floor icons back
+```
+
+**Why the second half is needed.** The floor icons are `BP_FloorSectionMarker` actors whose
+show/hide lives entirely in `BP_Explorer_PC`'s nav handlers. CHIQISH deliberately does not navigate
+anywhere, so `OnNavClicked` never fires — which meant cutting a 22-floor tower at floor 9 hid every
+icon above 9 and nothing ever brought them back.
+
+**Why `Select_POI`.** C++ never hides those icons, so it cannot meaningfully show them either.
+Instead it repeats the one action that does restore them: `Select_POI` on the building marker,
+exactly what clicking that building's own 3D icon does.
+
+**Why only one building.** Which one comes from `BP_Explorer_PC`'s `CurrentQirqimBuilding`, read by
+name. A level holds several towers, and restoring all of them would light up icons for buildings
+the user never opened. The loop stops at the first matching marker.
+
+The lookup logs its outcome under `[LanessaQirqim]` — a match, an empty `CurrentQirqimBuilding`, a
+missing variable and an unmatched name are four distinct messages. Since the whole path resolves by
+name, that log is the only thing that tells them apart.
 
 ### Interior and walk bars
 

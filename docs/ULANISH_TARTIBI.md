@@ -138,7 +138,7 @@ esa uni boshqa hech kim chaqirmaydi. Shuning uchun handler: `Season Mode = Manua
 | `OnSearchApplied(MatchingPoiIds)` | Ro'yxatdagi har aktyorga `Show_POI`, qolganiga `Hide_POI` |
 | `OnFloorSelected(Floor)` | Mos `BP_FloorSectionMarker` ni topib `Select_POI` |
 | `OnCategoryToggled(...)` | Kategoriya bo'yicha ko'rsatish/yashirish |
-| `OnResetSectionView()` | Kesim qutisini `Bounds = 0` ga qaytarish |
+| `Reset_SectionView` | Kesim qutisini boshlang'ich volume holatiga qaytarish |
 
 **`PoiId` nima.** Bu aktyorning o'z obyekt `Name`i (`BP_POI_C_12` kabi). Ekranda ko'rinmaydi,
 faqat aktyorni qaytib topish uchun. Nega shu tanlangan: ishga tushganda barqaror, takrorlanmas va
@@ -147,6 +147,34 @@ uni olish uchun aktyorni yuklash shart emas.
 **`OnFloorSelected` nega bor edi.** Avval qavat rakamini bosish faqat raqamni yoritardi, boshqa
 hech qanday ta'siri yo'q edi. Endi u 3D dagi qavat ikonkasini bosish bilan **bir xil** ishlaydi —
 ikkala kirish nuqtasi bir natija berishi kerak degan qoida bo'yicha.
+
+### CHIQISH ikkita ishni qiladi
+
+Qirqim panelidagi CHIQISH tugmasi bosilganda ikki narsa buziladi, lekin ularni ikki xil egasi
+tuzatadi:
+
+```
+CHIQISH bosildi
+  ├─ Reset_SectionView.Broadcast()        -> BP_Explorer_PC kesim qutisini qaytaradi
+  └─ LanessaRestoreQirqimBuilding()       -> qavat ikonkalarini qaytaradi
+```
+
+**Nega ikkinchisi kerak.** Qavat ikonkalari — `BP_FloorSectionMarker` aktyorlari, ularni
+ko'rsatish/yashirish butunlay `BP_Explorer_PC` ning nav handlerlarida. CHIQISH esa ataylab hech
+qayerga o'tmaydi, ya'ni `OnNavClicked` chaqirilmaydi. Natijada 22 qavatli binoni 9-qavatda
+kesgandan keyin 9-dan yuqoridagi ikonkalar yashirinib qolardi va ularni hech kim qaytarmasdi.
+
+**Nega aynan `Select_POI`.** C++ ikonkalarni o'zi yashirmaydi, demak o'zi ko'rsata ham olmaydi.
+Uning o'rniga u ikonkalarni qaytaradigan yagona mavjud harakatni takrorlaydi — bino markerida
+`Select_POI`, bu foydalanuvchi binoning 3D ikonkasini bosgani bilan aynan bir xil.
+
+**Nega faqat bitta bino.** Qaysi bino ekani `BP_Explorer_PC` ning `CurrentQirqimBuilding` satridan
+nom orqali o'qiladi. Levelda bir nechta bino bo'ladi; hammasini qaytarsa, foydalanuvchi umuman
+ochmagan binolarning ikonkalari ham yonib ketardi. Birinchi mos marker topilgach sikl to'xtaydi.
+
+Qidiruv nima qaytargani `[LanessaQirqim]` prefiksi bilan logga yoziladi — mos bino topilgani,
+`CurrentQirqimBuilding` bo'shligi, o'zgaruvchi umuman yo'qligi va mos marker topilmagani alohida
+xabarlar. Refleksiya nom bo'yicha ishlagani uchun bu yagona diagnostika vositasi.
 
 ### Interyer va sayr panellari
 
