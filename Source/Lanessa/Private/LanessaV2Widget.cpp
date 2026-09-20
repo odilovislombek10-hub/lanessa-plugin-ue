@@ -2144,6 +2144,10 @@ TSharedRef<SWidget> ULanessaV2Widget::BuildTourToast()
 		];
 }
 
+// Re-shows the floor icons of the building the user was cutting - see the definition, below, for why
+// resetting the cut is not enough on its own.
+static void LanessaRestoreQirqimBuilding();
+
 // .floor-rail { bottom:40 center; padding:10,12 } - 12 numbered buttons + cut-label
 TSharedRef<SWidget> ULanessaV2Widget::BuildFloorRail()
 {
@@ -2175,7 +2179,11 @@ TSharedRef<SWidget> ULanessaV2Widget::BuildFloorRail()
 		SNew(SBox).HeightOverride(30.f)
 		[
 			SNew(SLanessaCutBorder).CutSize(6.f).FillColor(V2::Transparent).HoverColor(V2::OliveGlow).bAnimateHover(true)
-			.OnClicked(FSimpleDelegate::CreateLambda([this]() { Reset_SectionView.Broadcast(); }))
+			.OnClicked(FSimpleDelegate::CreateLambda([this]() {
+				Reset_SectionView.Broadcast();
+				// Undoing the cut leaves the floor icons hidden - restore them too, see the function's comment.
+				LanessaRestoreQirqimBuilding();
+			}))
 			.Content()
 			[
 				SNew(SBox).HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(10.f,0.f)
@@ -2607,6 +2615,63 @@ static APawn* LanessaExplorerPawn()
 {
 	UWorld* World = LanessaGameWorld();
 	return World ? UGameplayStatics::GetPlayerPawn(World, 0) : nullptr;
+}
+
+/**
+ * CHIQISH has to undo two separate things, and only one of them is anyone's job today. The cut is
+ * reset by BP_Explorer_PC answering Reset_SectionView. The floor icons are not: they are
+ * BP_FloorSectionMarker actors whose show/hide lives entirely in BP_Explorer_PC's nav handlers, so
+ * cutting a 22-floor tower at floor 9 hides every icon above 9 and nothing brings them back -
+ * CHIQISH deliberately does not navigate, so OnNavClicked never fires.
+ *
+ * What C++ can do is repeat the one action that already restores them: Select_POI on the building
+ * marker, exactly as clicking that building's own 3D icon does. Which building that is comes from
+ * BP_Explorer_PC's CurrentQirqimBuilding, read by name for the same reason every other Blueprint
+ * value here is. It has to be that one building: a level holds several towers, and restoring all of
+ * them would light up icons for buildings the user never opened.
+ */
+static void LanessaRestoreQirqimBuilding()
+{
+	UWorld* World = LanessaGameWorld();
+	if (!World) { return; }
+
+	APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0);
+	if (!PC) { return; }
+
+	const FStrProperty* Prop = FindFProperty<FStrProperty>(PC->GetClass(), TEXT("CurrentQirqimBuilding"));
+	if (!Prop)
+	{
+		// Named rather than linked, so a rename shows up here instead of at compile time.
+		UE_LOG(LogTemp, Warning, TEXT("[LanessaQirqim] %s has no CurrentQirqimBuilding - floor icons cannot be restored"),
+			*PC->GetClass()->GetName());
+		return;
+	}
+
+	const FString TargetBuilding = Prop->GetPropertyValue_InContainer(PC);
+	if (TargetBuilding.IsEmpty())
+	{
+		// Either no building was opened - in which case no icon was hidden - or BP_Explorer_PC never
+		// wrote the variable when the building icon was clicked. The log tells the two apart.
+		UE_LOG(LogTemp, Warning, TEXT("[LanessaQirqim] CurrentQirqimBuilding is empty - nothing restored"));
+		return;
+	}
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!IsValid(Actor) || !Actor->GetClass()->GetName().StartsWith(TEXT("BP_BuildingSectionMarker"))) { continue; }
+
+		int32 Floor = 0;
+		FString Building;
+		ULanessaV2Widget::GetOwnFloorAndBuilding(Actor, Floor, Building);
+		if (!Building.Equals(TargetBuilding, ESearchCase::IgnoreCase)) { continue; }
+
+		ULanessaV2Widget::CallPOISelectPOI(Actor);
+		UE_LOG(LogTemp, Log, TEXT("[LanessaQirqim] restored building '%s' via %s"), *TargetBuilding, *Actor->GetName());
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[LanessaQirqim] no BP_BuildingSectionMarker matches '%s'"), *TargetBuilding);
 }
 
 ULanessaV2Widget* ULanessaV2Widget::GetLiveWidget()
