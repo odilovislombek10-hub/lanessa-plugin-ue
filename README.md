@@ -11,6 +11,11 @@ How the widgets reach the scene — the setup order, each delegate's Blueprint c
 the reasoning behind the design — is in [`docs/WIRING.md`](docs/WIRING.md)
 ([o'zbekcha](docs/ULANISH_TARTIBI.md)).
 
+The other half of the section feature — how the cut reaches the geometry through `MF_SectionMask`
+and `SectionMask_MPC`, and the four ways it silently fails to — is in
+[`docs/SECTION_MATERIALS.md`](docs/SECTION_MATERIALS.md)
+([o'zbekcha](docs/QIRQIM_MATERIALLARI.md)).
+
 ## Modules
 
 | File | What it is |
