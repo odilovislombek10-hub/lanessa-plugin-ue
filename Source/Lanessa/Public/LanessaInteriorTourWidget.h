@@ -91,10 +91,56 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LanessaInterior")
 	FName AutoFilterTag = TEXT("Room");
 
+	// ---- QIRQIM rejimi ------------------------------------------------------------------------
+	// Yurish o'rniga kvartira tepadan, bosh sahifadagi orbit kamera bilan ko'rinadi va shu
+	// tegli volume bo'yicha qirqiladi. Kamera nuqtasi - SectionCameraTag tegli aktyor (odatda
+	// CameraActor): u turgan joydan volume markaziga qaraladi. Bunday aktyor bo'lmasa kamera
+	// avtomatik: tepadan 60 gradus, volume o'lchamiga qarab masofa.
+
+	/** Qirqim qutisi - interyer levelidagi shu Actor Tag li aktyorning chegarasi. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LanessaInterior|Qirqim")
+	FName SectionTag = TEXT("InteriorSection");
+
+	/** Qirqim kamerasi turadigan joy (ixtiyoriy). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LanessaInterior|Qirqim")
+	FName SectionCameraTag = TEXT("InteriorSectionCamera");
+
+	/** true - qirqim rejimiga o'tadi, false - yurish rejimiga, oxirgi turgan joyga qaytadi. */
+	UFUNCTION(BlueprintCallable, Category = "LanessaInterior|Qirqim")
+	void SetSectionMode(bool bEnable);
+
+	UFUNCTION(BlueprintPure, Category = "LanessaInterior|Qirqim")
+	bool IsSectionMode() const { return bSectionMode; }
+
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
+	virtual void NativeConstruct() override;
 
 private:
+	TSharedRef<SWidget> BuildSectionButton();
+
+	// Yuqori o'ngdagi X: qirqimdan chiqish, qo'shimcha levellarni yopish, BP ga xabar,
+	// keyingi kadrda QIDIRUV sahifasiga qaytish.
+	void HandleExit();
+
+	// Xona tanlanganda: qirqimda bo'lsak avval yurishga qaytamiz - teleport yuruvchi
+	// personajga tegishli, orbit pawn ga emas.
+	void SelectRoom(const FString& RoomId);
+
+	bool bSectionMode = false;
+	// POI dagi 3D TUR orqali kirilganmi (menyudagi INTERYER emas). Qo'shimcha levellar va
+	// chiqishda QIDIRUV ga qaytish faqat shu yo'l uchun.
+	bool bPoiTour = false;
+	// Qirqimga o'tishdan oldingi yuruvchi personaj va uning qarash yo'nalishi - qaytishda
+	// o'sha holatning o'zi tiklanadi.
+	TWeakObjectPtr<class APawn> WalkPawn;
+	FRotator WalkControlRotation = FRotator::ZeroRotator;
+	// Qirqimga kirishdan oldin ko'rinib turgan sub levellar - chiqishda aynan shu holat qaytadi.
+	TArray<TWeakObjectPtr<class ULevelStreaming>> PreSectionVisible;
+	// Qirqimda yashirilgan POI markerlari (xonadon filtrlari va h.k.) - faqat o'zimiz
+	// yashirganlari, chiqishda aynan shular qaytariladi.
+	TArray<TWeakObjectPtr<class AActor>> HiddenPois;
+
 	TSharedRef<SWidget> BuildRoomBar();
 	/**
 	 * Refills RoomRow from the current RoomIds/RoomLabels. RebuildWidget() runs once, at construction

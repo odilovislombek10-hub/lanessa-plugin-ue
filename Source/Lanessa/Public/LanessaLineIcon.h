@@ -191,6 +191,26 @@ namespace LanessaSvgPath
 					LastCmd = 'A';
 					break;
 				}
+				case 'C':
+				{
+					// Cubic Bezier (x1 y1 x2 y2 x y) - fasl ikonkalaridagi barg shakllari shunday
+					// chizilgan. Avval bu buyruq tanilmas, raqamlari esa to'g'ri chiziq nuqtalari
+					// deb o'qilar edi va barglar siniq chiziqlarga aylanib qolardi.
+					const float X1 = ReadNum(); const float Y1 = ReadNum();
+					const float X2 = ReadNum(); const float Y2 = ReadNum();
+					const float EX = ReadNum(); const float EY = ReadNum();
+					const FVector2D P0 = Pos, P1(X1, Y1), P2(X2, Y2), P3(EX, EY);
+					const int32 Segments = 12;
+					for (int32 s = 1; s <= Segments; ++s)
+					{
+						const float T = (float)s / (float)Segments;
+						const float U = 1.f - T;
+						Current.Add(P0 * (U * U * U) + P1 * (3.f * U * U * T) + P2 * (3.f * U * T * T) + P3 * (T * T * T));
+					}
+					Pos = P3;
+					LastCmd = 'C';
+					break;
+				}
 				case 'Z':
 				case 'z':
 				{
@@ -373,6 +393,18 @@ namespace LanessaIcons
 		return {
 			FLanessaIconPrim::MakeLine({{4,20},{4,6},{12,3},{20,6},{20,20},{4,20}}),
 			FLanessaIconPrim::MakeLine({{4,13},{20,13}}),
+		};
+	}
+	// Minorali kran: ustun, strela, tortqilar va ilgakdagi yuk.
+	inline TArray<FLanessaIconPrim> Qurilish()
+	{
+		return {
+			FLanessaIconPrim::MakeLine({{4,21},{11,21}}),
+			FLanessaIconPrim::MakeLine({{7.5f,21},{7.5f,4}}),
+			FLanessaIconPrim::MakeLine({{3,7},{21,7}}),
+			FLanessaIconPrim::MakeLine({{3,7},{7.5f,4},{17,7}}),
+			FLanessaIconPrim::MakeLine({{17,7},{17,12}}),
+			FLanessaIconPrim::MakeLine({{15,12},{19,12},{19,15.5f},{15,15.5f},{15,12}}),
 		};
 	}
 

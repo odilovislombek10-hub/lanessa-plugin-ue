@@ -11,10 +11,9 @@ How the widgets reach the scene — the setup order, each delegate's Blueprint c
 the reasoning behind the design — is in [`docs/WIRING.md`](docs/WIRING.md)
 ([o'zbekcha](docs/ULANISH_TARTIBI.md)).
 
-The other half of the section feature — how the cut reaches the geometry through `MF_SectionMask`
-and `SectionMask_MPC`, and the four ways it silently fails to — is in
-[`docs/SECTION_MATERIALS.md`](docs/SECTION_MATERIALS.md)
-([o'zbekcha](docs/QIRQIM_MATERIALLARI.md)).
+What was added on 2026-09-24…26 — level streaming, the QURILISH page and its reveal animation,
+the interior QIRQIM mode, and the material nodes it relies on — is in
+[`docs/YANGILIKLAR_2026-09-26.md`](docs/YANGILIKLAR_2026-09-26.md).
 
 ## Modules
 
@@ -24,6 +23,9 @@ and `SectionMask_MPC`, and the four ways it silently fails to — is in
 | `LanessaMasterMenuWidget` | Earlier menu variant, kept for the levels still using it |
 | `LanessaInteriorTourWidget` | Interior walkthrough chrome: room pill bar, floor-plan popup, corner label, exit |
 | `LanessaWalkPointsWidget` | Free-walk ("sayr") spawn-point bar, same visual language as the interior bar |
+| `LanessaLevelStreaming` | Per-page sub-level streaming (`Project Settings → Plugins → Lanessa Level Streaming`) |
+| `LanessaConstruction` | QURILISH page: stage buttons, the "Qurilish etapi" bottom-to-top reveal animation, stage cameras |
+| `LanessaRemoteSettings` | Names the remote/operator panel resolves (pawn variables, marker classes, section volume) |
 | `LanessaDayNight` | Switches every local light + an emissive MPC scalar between day and night |
 | `LanessaDayNightSettings` | Project Settings page backing the above (hours, emissive levels, MPC path) |
 | `LanessaCustomShapes`, `LanessaLineIcon` | Slate primitives: cut-corner borders, gradients, drag tracks, SVG-path line icons |

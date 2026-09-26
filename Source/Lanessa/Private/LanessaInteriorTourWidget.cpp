@@ -18,6 +18,13 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "Engine/GameInstance.h"
+#include "TimerManager.h"
+#include "LanessaV2Widget.h"
+#include "LanessaLevelStreaming.h"
+#include "LanessaRemoteSettings.h"
+#include "Engine/LevelStreaming.h"
+#include "Misc/PackageName.h"
 
 // Same palette/font-loading approach as LanessaV2Widget.h's V2 namespace (kept as a private
 // duplicate rather than a shared header - each is `static`, so no ODR conflict across the two
@@ -359,14 +366,7 @@ void ULanessaInteriorTourWidget::RefreshRoomRow()
 			SNew(SBox).HeightOverride(34.f)
 			[
 				SNew(SLanessaCutBorder).CutSize(17.f).FillColor(BgColor).HoverColor(FLinearColor(1.f, 1.f, 1.f, 0.10f)).bAnimateHover(true)
-				.OnClicked(FSimpleDelegate::CreateLambda([this, RoomId]()
-				{
-					SetCurrentRoom(RoomId);
-					// Move before broadcasting, so a BP handler that fades or checks state sees the
-					// pawn already at the destination - same order a BP-driven jump would produce.
-					if (bTeleportOnClick) { TeleportToRoom(this, RoomId); }
-					OnRoomSelected.Broadcast(RoomId);
-				}))
+				.OnClicked(FSimpleDelegate::CreateLambda([this, RoomId]() { SelectRoom(RoomId); }))
 				.Content()
 				[
 					SNew(SBox).HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(18.f, 0.f)
@@ -406,7 +406,7 @@ TSharedRef<SWidget> ULanessaInteriorTourWidget::BuildTopRightCluster()
 		+ SHorizontalBox::Slot().AutoWidth().Padding(0.f, 0.f, 6.f, 0.f)
 		[CircleBtn(MakeExpandIcon(), CircleDark, Paper, FSimpleDelegate())]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[CircleBtn(MakeCloseIcon(), CircleDark, Paper, FSimpleDelegate::CreateLambda([this]() { OnExitClicked.Broadcast(); }))];
+		[CircleBtn(MakeCloseIcon(), CircleDark, Paper, FSimpleDelegate::CreateLambda([this]() { HandleExit(); }))];
 }
 
 // .plan-popup { position:absolute; top:64; right:16; width:340 } - the larger floor-plan card the
@@ -430,9 +430,7 @@ TSharedRef<SWidget> ULanessaInteriorTourWidget::BuildPlanPopup()
 				SNew(SLanessaCutBorder).CutSize(0.f).FillColor(BgColor).HoverColor(FLinearColor(1.f, 1.f, 1.f, 0.10f)).bAnimateHover(true)
 				.OnClicked(FSimpleDelegate::CreateLambda([this, RoomId]()
 				{
-					SetCurrentRoom(RoomId);
-					if (bTeleportOnClick) { TeleportToRoom(this, RoomId); }
-					OnRoomSelected.Broadcast(RoomId);
+					SelectRoom(RoomId);
 					bPlanOpen = false;
 					Invalidate(EInvalidateWidgetReason::Paint);
 				}))
@@ -518,6 +516,7 @@ TSharedRef<SWidget> ULanessaInteriorTourWidget::RebuildWidget()
 		[
 			SNew(SVerticalBox)
 			+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)[BuildRoomLabel()]
+			+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 14.f, 0.f, 0.f)[BuildSectionButton()]
 		]
 		+ SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(24.f)
 		[BuildTopRightCluster()]
@@ -528,4 +527,259 @@ TSharedRef<SWidget> ULanessaInteriorTourWidget::RebuildWidget()
 		]
 		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 32.f)
 		[BuildRoomBar()];
+}
+
+// ==== QIRQIM rejimi =================================================================
+
+static TArray<TSoftObjectPtr<UWorld>> LanessaPageList(ELanessaPage Page)
+{
+	const FLanessaPageLevels* Entry = ULanessaLevelStreamingSettings::Get().FindPage(Page);
+	return Entry ? Entry->Levels : TArray<TSoftObjectPtr<UWorld>>();
+}
+
+// BP yuklagan interyer leveli (BP_Explorer_PC.PendingInteriorLevelName) - qirqimda ham u qolishi
+// shart, u plagin jadvalida bo'lmasa ham.
+static TSet<FString> LanessaInteriorKeep(UWorld* World)
+{
+	TSet<FString> Out;
+	APlayerController* PC = World ? UGameplayStatics::GetPlayerController(World, 0) : nullptr;
+	if (!PC) { return Out; }
+	if (const FStrProperty* SP = FindFProperty<FStrProperty>(PC->GetClass(), TEXT("PendingInteriorLevelName")))
+	{
+		const FString V = SP->GetPropertyValue_InContainer(PC);
+		if (!V.IsEmpty()) { Out.Add(FPackageName::GetShortName(V)); }
+	}
+	else if (const FNameProperty* NP = FindFProperty<FNameProperty>(PC->GetClass(), TEXT("PendingInteriorLevelName")))
+	{
+		const FName V = NP->GetPropertyValue_InContainer(PC);
+		if (!V.IsNone()) { Out.Add(FPackageName::GetShortName(V.ToString())); }
+	}
+	return Out;
+}
+
+// Tegli aktyorlardan Near ga eng yaqini - bitta interyerda bir nechta kvartira bo'lsa, qirqim
+// shu turgan kvartiraniki bo'lsin.
+static AActor* LanessaNearestTagged(UWorld* World, FName Tag, const FVector& Near)
+{
+	AActor* Best = nullptr;
+	double BestDist = TNumericLimits<double>::Max();
+	if (!World || Tag.IsNone()) { return nullptr; }
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (!IsValid(*It) || !It->ActorHasTag(Tag)) { continue; }
+		const double D = FVector::DistSquared(It->GetActorLocation(), Near);
+		if (D < BestDist) { BestDist = D; Best = *It; }
+	}
+	return Best;
+}
+
+void ULanessaInteriorTourWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	// BP bu widgetni ikki yo'ldan yaratadi: POI kartasidagi 3D TUR va menyudagi INTERYER. Menyu
+	// yashirilishidan oldingi sahifa qaysi ekani shuni ajratadi.
+	const ULanessaV2Widget* V2 = ULanessaV2Widget::GetLiveWidget();
+	bPoiTour = !(V2 && V2->ActiveView == TEXT("interyer"));
+
+	if (bPoiTour)
+	{
+		UWorld* World = GetWorld();
+		if (ULanessaLevelStreamingSubsystem* Streaming = World ? World->GetSubsystem<ULanessaLevelStreamingSubsystem>() : nullptr)
+		{
+			Streaming->SetLevelsVisible(LanessaPageList(ELanessaPage::Interyer3DTur), true);
+		}
+	}
+}
+
+void ULanessaInteriorTourWidget::SetSectionMode(bool bEnable)
+{
+	if (bEnable == bSectionMode) { return; }
+
+	UWorld* World = GetWorld();
+	APlayerController* PC = World ? UGameplayStatics::GetPlayerController(World, 0) : nullptr;
+	if (!PC) { return; }
+	ULanessaLevelStreamingSubsystem* Streaming = World->GetSubsystem<ULanessaLevelStreamingSubsystem>();
+	const TArray<TSoftObjectPtr<UWorld>> SectionLevels = LanessaPageList(ELanessaPage::InteryerQirqim);
+
+	if (bEnable)
+	{
+		// Bosh sahifaning orbit pawn i - BP uni GameInstance da saqlaydi (Explorer_Main_Pawn).
+		APawn* Orbit = nullptr;
+		if (UGameInstance* GI = UGameplayStatics::GetGameInstance(World))
+		{
+			if (const FObjectProperty* Prop = FindFProperty<FObjectProperty>(GI->GetClass(), TEXT("Explorer_Main_Pawn")))
+			{
+				Orbit = Cast<APawn>(Prop->GetObjectPropertyValue_InContainer(GI));
+			}
+		}
+		APawn* Walk = PC->GetPawn();
+		if (!Orbit || !Walk || Orbit == Walk)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LanessaInterior] Qirqim: orbit pawn (GI.Explorer_Main_Pawn) yoki yuruvchi personaj topilmadi"));
+			return;
+		}
+
+		// Qirqimda FAQAT "Interyer: Qirqim" ro'yxati va kvartiraning o'zi ko'rinadi - tepadan
+		// qaralganda atrofdagi bino, landshaft va h.k. ko'rinib qolmasin.
+		if (Streaming) { PreSectionVisible = Streaming->ShowOnly(SectionLevels, LanessaInteriorKeep(World)); }
+
+		// POI markerlari (xonadon filtri gologrammalari, qavat ikonkalari) asosiy levelda
+		// turadi va level yashirish ularga tegmaydi - tepadan qaralganda kvartira ustida
+		// osilib turardi. Faqat ko'rinib turganlarini yashiramiz, chiqishda shular qaytadi.
+		const FString PoiPrefix = ULanessaRemoteSettings::Get().PoiClassPrefix;
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* A = *It;
+			if (IsValid(A) && !A->IsHidden() && A->GetClass()->GetName().StartsWith(PoiPrefix, ESearchCase::IgnoreCase))
+			{
+				A->SetActorHiddenInGame(true);
+				HiddenPois.Add(A);
+			}
+		}
+
+		// Qirqim qutisi va kamera nuqtasi - levellar ochilgandan KEYIN qidiriladi, ular
+		// qirqim ro'yxatidagi levelda turgan bo'lishi mumkin.
+		AActor* Section = LanessaNearestTagged(World, SectionTag, Walk->GetActorLocation());
+		FVector Centre = Walk->GetActorLocation(), Extent(600.0, 600.0, 200.0);
+		double BoxYaw = 0.0;
+		if (Section)
+		{
+			Section->GetActorBounds(false, Centre, Extent);
+			BoxYaw = Section->GetActorRotation().Yaw;
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LanessaInterior] Qirqim: '%s' tegli volume topilmadi - kesilmaydi, faqat kamera"),
+				*SectionTag.ToString());
+		}
+
+		WalkPawn = Walk;
+		WalkControlRotation = PC->GetControlRotation();
+		// Tepadan qaralganda kvartira ichida turgan personaj ko'rinib qolmasin.
+		Walk->SetActorHiddenInGame(true);
+		PC->Possess(Orbit);
+
+		double Pitch = -60.0, Yaw = WalkControlRotation.Yaw;
+		double Arm = FMath::Max(1500.0, FMath::Max(Extent.X, Extent.Y) * 2.5);
+		FVector Pivot = Centre;
+		if (AActor* Cam = LanessaNearestTagged(World, SectionCameraTag, Centre))
+		{
+			// Qo'yilgan kameraning AYNAN o'zi: o'sha joy va o'sha burilish. Orbit pawn kamerasi
+			// markazdan teskari yo'nalishda Arm masofada turadi, shuning uchun markazni kamera
+			// qarab turgan chiziq ustiga, volume markaziga eng yaqin nuqtaga qo'yamiz - shunda
+			// kamera o'z joyida qoladi va aylantirilganda kvartira atrofida aylanadi.
+			const FVector CamLoc = Cam->GetActorLocation();
+			const FRotator CamRot = Cam->GetActorRotation();
+			const FVector Forward = CamRot.Vector();
+			Arm = FMath::Max(FVector::DotProduct(Centre - CamLoc, Forward), 100.0);
+			Pivot = CamLoc + Forward * Arm;
+			Pitch = CamRot.Pitch;
+			Yaw = CamRot.Yaw;
+		}
+		// Darhol, animatsiyasiz: asosiy level yopiq, orbit pawn esa uzoqda qolgan - bo'sh
+		// fazo orqali uchib kelishi ko'rinmasin. Pawn ning chegaralariga moslanadi.
+		ULanessaV2Widget::RemoteCameraSet(Pivot, Pitch, Yaw, Arm, /*bAnimate=*/false);
+		// RemoteCameraSet pawn ning Location_Current iga yozmaydi, pawn esa har kadrda joyini
+		// shundan quradi - markaz eski joyga (shahar markaziga) qaytib ketardi.
+		ULanessaV2Widget::RemoteCameraMove(Pivot, Arm);
+
+		if (Section) { ULanessaV2Widget::ApplySectionBox(Centre, Extent, BoxYaw); }
+		bSectionMode = true;
+	}
+	else
+	{
+		// Qirqimni bekor qilish. RemoteResetSectionView emas: u bino markerini ham tanlab
+		// kamerani binoga uchirardi - interyerda bu kerak emas.
+		if (ULanessaV2Widget* V2 = ULanessaV2Widget::GetLiveWidget()) { V2->Reset_SectionView.Broadcast(); }
+
+		if (APawn* Walk = WalkPawn.Get())
+		{
+			Walk->SetActorHiddenInGame(false);
+			PC->Possess(Walk);
+			PC->SetControlRotation(WalkControlRotation);
+		}
+		WalkPawn.Reset();
+
+		if (Streaming) { Streaming->RestoreVisible(PreSectionVisible, LanessaInteriorKeep(World)); }
+		PreSectionVisible.Reset();
+		for (const TWeakObjectPtr<AActor>& Poi : HiddenPois)
+		{
+			if (AActor* A = Poi.Get()) { A->SetActorHiddenInGame(false); }
+		}
+		HiddenPois.Reset();
+		bSectionMode = false;
+	}
+	Invalidate(EInvalidateWidgetReason::Paint);
+}
+
+void ULanessaInteriorTourWidget::SelectRoom(const FString& RoomId)
+{
+	SetSectionMode(false);
+	SetCurrentRoom(RoomId);
+	// Move before broadcasting, so a BP handler that fades or checks state sees the
+	// pawn already at the destination - same order a BP-driven jump would produce.
+	if (bTeleportOnClick) { TeleportToRoom(this, RoomId); }
+	OnRoomSelected.Broadcast(RoomId);
+}
+
+void ULanessaInteriorTourWidget::HandleExit()
+{
+	// BP ning chiqishi ActiveThirdPersonCharacter ni yo'q qilib, bosh pawn ni oladi - u
+	// yuruvchi personaj egallangan holatni kutadi, shuning uchun avval qirqimdan chiqamiz.
+	SetSectionMode(false);
+
+	UWorld* World = GetWorld();
+	if (bPoiTour && World)
+	{
+		if (ULanessaLevelStreamingSubsystem* Streaming = World->GetSubsystem<ULanessaLevelStreamingSubsystem>())
+		{
+			TArray<TSoftObjectPtr<UWorld>> Extra = LanessaPageList(ELanessaPage::Interyer3DTur);
+			Extra.Append(LanessaPageList(ELanessaPage::InteryerQirqim));
+			Streaming->SetLevelsVisible(Extra, false);
+		}
+	}
+
+	OnExitClicked.Broadcast();
+
+	// QIDIRUV ga qaytish BP o'z tozalashini (asosiy levelni yuklash, menyuni ko'rsatish)
+	// tugatgandan keyin - keyingi kadrda. Sahifa qayta bosilgandek bo'ladi: uning levellari,
+	// kamerasi va xonadon markerlari (ApplySearch) qaytadan qo'llanadi.
+	if (bPoiTour && World)
+	{
+		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([]()
+		{
+			if (ULanessaV2Widget* V2 = ULanessaV2Widget::GetLiveWidget()) { V2->SetActiveView(TEXT("qidiruv")); }
+		}));
+	}
+}
+
+// Yuqori chap: xona nomi ostidagi QIRQIM tugmasi. Yoqilganda olive rangda.
+TSharedRef<SWidget> ULanessaInteriorTourWidget::BuildSectionButton()
+{
+	using namespace InteriorV2;
+
+	TAttribute<FLinearColor> Bg = TAttribute<FLinearColor>::Create([this]() { return bSectionMode ? OliveGlow : CircleDark; });
+	TAttribute<FLinearColor> Ink = TAttribute<FLinearColor>::Create([this]() { return bSectionMode ? IconInk : Paper; });
+	TAttribute<FSlateColor> TextInk = TAttribute<FSlateColor>::Create([this]() { return FSlateColor(bSectionMode ? IconInk : Paper); });
+
+	return SNew(SBox).HeightOverride(38.f)
+	[
+		SNew(SLanessaCutBorder).CutSize(10.f).FillColor(Bg).HoverColor(FLinearColor(1.f, 1.f, 1.f, 0.12f)).bAnimateHover(true)
+		.OnClicked(FSimpleDelegate::CreateLambda([this]() { SetSectionMode(!bSectionMode); }))
+		.Content()
+		[
+			SNew(SBox).Padding(FMargin(12.f, 0.f, 16.f, 0.f)).VAlign(VAlign_Center)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 10.f, 0.f)
+				[
+					SNew(SBox).WidthOverride(18.f).HeightOverride(18.f)
+					[SNew(SLanessaInteriorIcon).Prims(LanessaIcons::Qirqim()).Color(Ink).StrokeWidth(1.4f)]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[SNew(STextBlock).Text(FText::FromString(TEXT("QIRQIM"))).Font(F(11)).ColorAndOpacity(TextInk)]
+			]
+		]
+	];
 }

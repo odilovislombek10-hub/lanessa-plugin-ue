@@ -233,6 +233,12 @@ public:
 	FString Label_Progulka = TEXT("PROGULKA");
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lanessa|Nav Labels")
 	FString Label_Interyer = TEXT("INTERYER");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lanessa|Nav Labels")
+	FString Label_Qurilish = TEXT("QURILISH");
+
+	// QURILISH panelidagi tanlangan bosqich: "kotlovan" "yerosti" "karkas" "devor" "fasad"
+	// "qurilishetapi", bo'sh = hech biri. Boshqa sahifaga o'tilganda tozalanadi.
+	FString ActiveBuildStage;
 
 	// Real POI card data (POI_Info_Struct-derived), set via SetPoiData() - replaces the old mockup-only
 	// Area/Beds/Baths/Price fields, which had no real-product equivalent (see lanessa-real-product-behavior
@@ -261,6 +267,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Lanessa")
 	void SetActiveView(const FString& ViewId);
+
+	/**
+	 * QURILISH panelidagi bosqich tugmasi. StageId: "kotlovan" "yerosti" "karkas" "devor"
+	 * "fasad" "qurilishetapi". Bosqich levellarini ochadi (Lanessa Level Streaming jadvali),
+	 * kamerani uchiradi (Lanessa Qurilish -> Cameras); "qurilishetapi" animatsiyani boshlaydi.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Lanessa")
+	void SelectBuildStage(const FString& StageId);
 	// BP_POI/BP_Info_Widget should call this directly instead of drilling into the old
 	// BP_MasterMenu_Widget.BP_Info_Menu_01/BP_InfoGallery_Widget sub-widget references - v2 builds
 	// its POI card inline via Slate (BuildPoiCard), there's no separate sub-widget to reach into.
@@ -540,6 +554,40 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
 	static void RemoteListPois(bool bFilterUnits, TArray<FString>& OutIds, TArray<FString>& OutNames);
 
+	// ---- Bino va qavat ------------------------------------------------------------------------
+	// Qavat soni hech qayerda yozilmagan: panel 12 tani qattiq ko'rsatardi, bu levelda esa 3 ta
+	// qavat markeri bor va boshqa loyihada 22 ta bo'lishi mumkin. Ro'yxat har doim sahnadagi
+	// BP_FloorSectionMarker / BP_BuildingSectionMarker aktyorlaridan tuziladi.
+
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static void RemoteListBuildings(TArray<FString>& OutIds, TArray<FString>& OutNames);
+
+	// BuildingId bo'sh bo'lsa - hamma qavat. Aks holda faqat shu binoning qavatlari
+	// (markazi bino qutisi ichida bo'lganlari). Pastdan tepaga tartiblangan, nomlari 1..N.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static void RemoteListFloors(const FString& BuildingId,
+	                             TArray<FString>& OutIds, TArray<FString>& OutNames);
+
+	// Markerning o'z SectionView_Volume ini qirqim qutisi qilib qo'yadi. Bu qavatni
+	// raqam bilan tanlashdan aniqroq: 3 ta bino bo'lganda raqam qaysi binoniki ekani
+	// noma'lum bo'lib qolardi va hammasi birdan qirqilardi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteApplySection(const FString& MarkerId);
+
+	// Qirqim qutisini to'g'ridan qo'llaydi - markersiz. Centre/Extent dunyo koordinatasida
+	// (Extent - yarim o'lcham, GetActorBounds beradigani), Yaw gradusda. BP_Explorer_PC ning
+	// SectionView_Mask i orqali, ya'ni qavat qirqimi bilan aynan bir xil animatsiya va MPC.
+	// Interyer qirqimi (InteriorSection tegli volume) shundan foydalanadi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool ApplySectionBox(FVector Centre, FVector Extent, double Yaw);
+
+	// Bino ikonkasini ekranda bosish bilan AYNAN bir xil: markerning o'z Select_POI i
+	// chaqiriladi - kamera bino kamerasiga uchadi, qavat ikonkalari chiqadi va
+	// CurrentQirqimBuilding yoziladi. Avval panel bino tugmasida faqat ro'yxat so'rardi,
+	// sahnada hech narsa bo'lmasdi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteSelectBuilding(const FString& MarkerId);
+
 	// ---- Operator camera ---------------------------------------------------------------------
 	// BP_Explorer_Pawn is an orbit rig: Location_New is the pivot, Pitch_New/Yaw_New the angles,
 	// TargetArmLength_New the distance. SetExplorerPawnCameraTarget above writes those four and then
@@ -552,6 +600,98 @@ public:
 	// the operator cannot drive the camera anywhere the mouse could not.
 	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
 	static bool RemoteCameraSet(FVector Pivot, double Pitch, double Yaw, double ArmLength, bool bAnimate);
+
+	// Attract-mode auto-rotation. RemoteCameraSet(bAnimate=false) switches it off, because a manually
+	// aimed camera otherwise drifts on its own; call this with true to hand the scene back to it.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteSetIdleRotation(bool bEnabled);
+
+	// Kamerani BURISH uchun yagona ishlaydigan yo'l: barmoq koordinatasini pawn ning
+	// o'z "Touch Rotation" iga uzatish - o'yin ichidagi barmoq ham shundan buradi.
+	// Absolyut burchak qo'yib bo'lmaydi: spring arm da use_pawn_control_rotation=True
+	// va rotation lag 5.0, ya'ni kamera burilishni faqat pawn ning kirish mantig'idan
+	// oladi. Pitch_Current/Yaw_Current yozish aktyorni buradi-yu kamerani emas,
+	// SpringArm->SetWorldRotation keyingi kadrda bekor bo'ladi (ikkalasi ham
+	// surat bilan tasdiqlangan). Sezgirlik pawn ning Rotation_Speed_Touch idan keladi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteTouchRotate(double X, double Y);
+
+	// Faqat joy va masofa - burilishga UMUMAN tegmaydi. Ikki barmoq bilan surish va
+	// chimdish shundan foydalanadi. RemoteCameraSet ni ishlatib bo'lmaydi: u burilish
+	// o'zgaruvchilarini ham yozadi va RemoteTouchRotate qo'ygan burilishni bekor
+	// qilib, kamerani noto'g'ri buradi (o'lchangan regressiya).
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteCameraMove(FVector Pivot, double ArmLength);
+
+	// ---- Burilish va jostik harakati -----------------------------------------------------------
+	// Burilish faqat kontroller kirishi orqali bo'ladi. Qiymat masshtablanmaydi: kirish kadrga
+	// bir marta yig'iladi va cheklanadi (o'lchangan: Val=3 ham, Val=300 ham ~1.3 gradus).
+	// Tezlik CHAQIRUVLAR SONIGA bog'liq - sekundiga 30 ta taxminan 40 gradus/sek beradi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteRotate(double YawDir, double PitchDir);
+
+	// Kamera yo'nalishiga nisbatan suradi. Pawn ning MoveForward i yaramaydi - kadr vaqtiga
+	// bog'lanmagani uchun juda kuchli (o'lchangan: 20 chaqiruvda 4 million birlik).
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteMoveRelative(double Forward, double Right, double Up, double Speed);
+
+	// ---- Kategoriyalar va xonalar --------------------------------------------------------------
+	// Kategoriyalar sahnadagi POI teglaridan topiladi, qattiq yozilmaydi: Atrofi panelida teglar
+	// inglizcha (Education/Dining/Transportation/Shopping), Qulayliklarda o'zbekcha
+	// (Ko'ngilochar/Transport/Xizmatlar). PanelTag: "Surroundings" yoki "Amenities".
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static void RemoteListCategories(const FString& PanelTag,
+	                                 TArray<FString>& OutTags, TArray<int32>& OutCounts);
+
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static void RemoteListCategoryPois(const FString& PanelTag, const FString& CategoryTag,
+	                                   TArray<FString>& OutIds, TArray<FString>& OutNames);
+
+	// Interyer xonalari va progulka nuqtalari. RequiredTag - AKTYOR tegi: "room"
+	// interyer uchun, "walk" progulka uchun (bo'sh = hammasi). OutNames - startlarning
+	// "Player Start Tag" xossasi, ya'ni ekrandagi ro'yxat bilan bir xil yozuvlar.
+	// Ataylab ULanessaInteriorTourWidget/ULanessaWalkPointsWidget::PopulateFromPlayerStarts
+	// bilan bir xil qoida: ikki joyda ikki xil filtr bo'lsa telefon va ekran ajralib ketadi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static void RemoteListRooms(const FString& RequiredTag,
+	                            TArray<FString>& OutIds, TArray<FString>& OutNames);
+
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteGotoRoom(const FString& RoomId);
+
+	// Analog burilish: berilgan GRADUS miqdoricha buradi, shuning uchun jostikni
+	// markazdan qancha uzoqqa surilsa shuncha tez aylanadi. RemoteRotate faqat
+	// yo'nalishni biladi va tezligi o'zgarmaydi - jostik uchun shu ishlatiladi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteRotateBy(double YawDelta, double PitchDelta);
+
+	// Panel uchun sozlamalar (JSON): panel teglari, interyer/progulka teglari va
+	// karta tugmalari. Project Settings -> Plugins -> Lanessa Remote dan boshqariladi.
+	// 180/360 yoki ko'p ekranli rejimda ishlayapmizmi (-dc_cluster bayrog'i).
+	// Shu rejimda ekran interfeysi chizilmaydi - boshqaruv operator panelida.
+	UFUNCTION(BlueprintPure, Category = "Lanessa|Remote")
+	static bool IsClusterDisplayMode();
+
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static FString RemoteGetConfig();
+
+	// POI kartasidagi tugmalar: "level" = 3D TUR, "level2" = VR TUR, "media" = REJA.
+	// Vidjetning o'z OnPoiCardAction uzatmasini ishga soladi, ya'ni ekrandagi tugmani
+	// bosgan bilan aynan bir xil yo'ldan ketadi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteCardAction(const FString& ActionId);
+
+	// Galereya (BP_Gallery_Widget - Blueprint da, C++ da emas).
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteGalleryClose();
+
+	// Delta = +1 keyingi rasm, -1 oldingisi. Oxiridan boshiga aylanadi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteGalleryStep(int32 Delta);
+
+	// false qaytsa galereya umuman ochiq emas - panel tugmalarni o'chirib qo'yadi.
+	UFUNCTION(BlueprintCallable, Category = "Lanessa|Remote")
+	static bool RemoteGalleryState(int32& OutIndex, int32& OutCount);
 
 	// Current pivot/angles/distance, so the panel's gestures can start from where the camera actually
 	// is rather than snapping to the panel's own last known values.
@@ -579,6 +719,11 @@ private:
 	float EnvironmentCaptionRefreshLeft = 0.f;
 	FText EnvironmentCaption = FText::FromString(TEXT("—"));
 	TSharedRef<SWidget> BuildFloorRail();
+	// QURILISH -> Yer osti qavati: qirqimdagi qavat paneli, faqat Floor < 1 qavatlar bilan.
+	TSharedRef<SWidget> BuildUndergroundRail();
+	TSharedRef<SWidget> BuildSidePanelQurilishContent();
+	// Qavat raqamlari qatorini qayta to'ldiradi (qirqim va yer osti panellari uchun umumiy).
+	void PopulateFloorRow(const TSharedPtr<class SHorizontalBox>& Row, bool bUnderground);
 	TSharedRef<SWidget> BuildPoiCard();
 	TSharedRef<SWidget> BuildPlanModal();
 	TSharedRef<SWidget> BuildUtility();
@@ -633,6 +778,7 @@ private:
 	// Live floor-rail row box, so SetAvailableFloors() can clear and repopulate it after the widget
 	// tree is already built - same reason/pattern as CategoryPoiListBoxes above.
 	TSharedPtr<class SHorizontalBox> FloorRailRow;
+	TSharedPtr<class SHorizontalBox> UndergroundRailRow;
 
 	// False until the first NativeTick has pushed the current Ultra Dynamic Sky "Time of Day" through
 	// ULanessaDayNight once. Without it the scene starts in whatever light/emissive state the level was

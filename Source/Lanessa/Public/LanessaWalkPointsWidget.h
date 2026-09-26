@@ -8,9 +8,8 @@
 // BP_Explorer_PC pushed in via SetPoints() for that point (its own naming convention - typically the
 // PlayerStart's actor name or a stable key) - never shown on screen, the label is what the user sees.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FLanessaWalkOnPointSelected, const FString&, PointId);
-// Broadcast when the top-right "X" is clicked - BP_Explorer_PC should run its full walk-exit
-// cleanup (put the camera back, re-possess the main explorer pawn, remove this widget, and restore
-// the v2 nav rail it hid on entering walk mode).
+// Ekranda X tugmasi endi yo'q, shuning uchun bu hozir hech qachon chaqirilmaydi. Blueprint
+// ulanishlari buzilmasin deb qoldirilgan.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLanessaWalkOnExitClicked);
 
 /**
@@ -99,8 +98,6 @@ protected:
 
 private:
 	TSharedRef<SWidget> BuildPointBar();
-	TSharedRef<SWidget> BuildCornerLabel();
-	TSharedRef<SWidget> BuildExitButton();
 
 	/**
 	 * Refills PointRow from the current PointIds/PointLabels.

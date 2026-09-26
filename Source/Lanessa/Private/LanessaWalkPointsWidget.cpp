@@ -1,6 +1,5 @@
 #include "LanessaWalkPointsWidget.h"
 #include "LanessaCustomShapes.h"
-#include "LanessaLineIcon.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Text/STextBlock.h"
@@ -27,7 +26,6 @@ namespace WalkV2
 	static const FLinearColor Transparent(0.f, 0.f, 0.f, 0.f);
 	static const FLinearColor IconInk(0.039f, 0.039f, 0.031f, 1.f);     // #0a0a08 - text on olive
 	static const FLinearColor PanelPill(0.f, 0.f, 0.f, 0.55f);          // the bar's own translucent pill
-	static const FLinearColor CircleDark(0.078f, 0.078f, 0.063f, 0.92f); // #141410-ish, exit circle
 
 	static FSlateFontInfo LoadSystemFont(const FString& FilePath, int32 Size, bool bBold)
 	{
@@ -250,71 +248,16 @@ void ULanessaWalkPointsWidget::RefreshPointRow()
 	}
 }
 
-// Top-left corner label: the mode name over the current point's name, matching the interior tour's
-// own corner label so the two modes read as the same product.
-TSharedRef<SWidget> ULanessaWalkPointsWidget::BuildCornerLabel()
-{
-	using namespace WalkV2;
-
-	return SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight()
-		[
-			SNew(STextBlock)
-			.Text(TAttribute<FText>::Create([this]() { return GetCurrentPointLabel(); }))
-			.Font(F(20, true)).ColorAndOpacity(FSlateColor(Paper))
-		]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 2.f, 0.f, 0.f)
-		[
-			SNew(STextBlock).Text(FText::FromString(TEXT("SAYR"))).Font(F(8)).ColorAndOpacity(FSlateColor(TextDim))
-		];
-}
-
-// Top-right exit button: the same 42x42 dark circle with a stroked "X" that the interior tour's
-// corner cluster ends with, so leaving either mode looks and sits identically. Only the close button
-// is here - the interior's map and expand siblings have no meaning for free-walk.
-//
-// The X is built from two crossing lines rather than reusing LanessaIcons::Exit(), which is the
-// door/arrow "log out" glyph used by the nav rail - visually a different gesture from closing an
-// overlay, and the interior already established the X for this exact spot.
-TSharedRef<SWidget> ULanessaWalkPointsWidget::BuildExitButton()
-{
-	using namespace WalkV2;
-
-	TArray<FLanessaIconPrim> CloseIcon;
-	CloseIcon.Add(FLanessaIconPrim::MakeLine({ {5, 5}, {19, 19} }));
-	CloseIcon.Add(FLanessaIconPrim::MakeLine({ {19, 5}, {5, 19} }));
-
-	return SNew(SBox).WidthOverride(42.f).HeightOverride(42.f)
-	[
-		SNew(SLanessaCutBorder).CutSize(0.f).FillColor(CircleDark)
-		.HoverColor(FLinearColor(1.f, 1.f, 1.f, 0.12f)).bAnimateHover(true)
-		.OnClicked(FSimpleDelegate::CreateLambda([this]() { OnExitClicked.Broadcast(); }))
-		.Content()
-		[
-			SNew(SBox).HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(11.f)
-			[SNew(SLanessaLineIcon).Primitives(CloseIcon).StrokeColor(Paper).StrokeWidth(1.7f)]
-		]
-	];
-}
-
 TSharedRef<SWidget> ULanessaWalkPointsWidget::RebuildWidget()
 {
 	// No mock list here, unlike the interior tour's design-only pass: this bar is driven from real
 	// PlayerStarts from the start, and showing invented point names would make an empty/misconfigured
 	// tag set look like it is working.
+	// Yuqori chapdagi nuqta nomi (Player Start Tag + "SAYR") olib tashlandi: v2 HUD ning logotipi
+	// ham o'sha burchakda, yozuv uning ustiga tushib qolardi. Joriy nuqta pastki panelda yoritilib
+	// turadi, alohida yozuv kerak emas. Yuqori o'ngdagi X ham olib tashlandi - progulkada v2 menyusi
+	// ekranda qoladi, dasturdan chiqish esa pastki o'ngdagi "Chiqish" tugmasida.
 	return SNew(SOverlay)
-		+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(24.f)
-		[
-			SNew(SBox)
-			.Visibility(TAttribute<EVisibility>::Create(
-				[this]() { return PointIds.Num() > 0 ? EVisibility::HitTestInvisible : EVisibility::Collapsed; }))
-			[BuildCornerLabel()]
-		]
-		// Deliberately NOT gated on PointIds.Num(): if the level's walk PlayerStarts are untagged or
-		// missing, the bar collapses - hiding the exit too would strand the user in walk mode with no
-		// way back, since entering it hides the v2 nav rail.
-		+ SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(24.f)
-		[BuildExitButton()]
 		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 32.f)
 		[
 			SNew(SBox)

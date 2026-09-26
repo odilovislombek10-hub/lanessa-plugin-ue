@@ -18,3 +18,7 @@ DerivedDataCache/
 # Local backups kept beside the sources while refactoring - not part of the plugin.
 *.bak
 *.orig
+
+# Local agent tooling state and dated backups
+.claude-flow/
+*.bak-*

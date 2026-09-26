@@ -42,13 +42,36 @@ namespace
 		}
 		return nullptr;
 	}
+
+	/**
+	 * Keshda o'lik yozuv bormi.
+	 *
+	 * Lampo_1..4, Stalba_1, Sham_1/2, Table_2 chiroq Blueprint'lari konstruksiya skripti qayta
+	 * ishlaganda (aktyorni ko'chirish, tahrirlash, BP rekompilyatsiyasi, PIE boshlanishi)
+	 * o'z chiroq komponentini O'CHIRIB, o'rniga yangisini yaratadi. Eski zaif ko'rsatkich
+	 * yaroqsiz bo'ladi, ApplyDayNight uni keshdan tashlaydi - lekin YANGI komponent keshga
+	 * qaytmaydi, chunki EnsureCache faqat kesh bo'sh bo'lsagina qayta quradi. Natijada
+	 * Toshekent levelida kesh 1087 dan 886 ga tushib qolardi va o'sha 201 ta soya tashlovchi
+	 * chiroq kun bo'yi yonib turardi.
+	 *
+	 * Shuning uchun bitta o'lik yozuv ham "kesh eskirgan" degani: butunlay qayta quramiz.
+	 * Narxi - 1087 ta zaif ko'rsatkichni tekshirish, bu slayder tortilayotganda ham sezilmaydi.
+	 */
+	bool HasStaleEntry(const TArray<TWeakObjectPtr<ULocalLightComponent>>& Lights)
+	{
+		for (const TWeakObjectPtr<ULocalLightComponent>& Light : Lights)
+		{
+			if (!Light.IsValid()) { return true; }
+		}
+		return false;
+	}
 }
 
 void ULanessaDayNight::EnsureCache(UWorld* World)
 {
 	if (!World) { return; }
 
-	if (CachedWorld.Get() == World && CachedLights.Num() > 0)
+	if (CachedWorld.Get() == World && CachedLights.Num() > 0 && !HasStaleEntry(CachedLights))
 	{
 		return;
 	}

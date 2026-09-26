@@ -27,58 +27,6 @@ Lights are **not** wired here. `ULanessaV2Widget::SetTimePct` calls
 `ULanessaDayNight::ApplyDayNightFromUDS` directly on every drag frame, so the day/night switch is
 pure C++ and travels with the plugin.
 
-## The section cut
-
-These two are the whole section mechanism on the material side. Every master material that should
-be cuttable wires the function in; the collection is what `BP_Explorer_PC` writes the box into.
-See [`../docs/SECTION_MATERIALS.md`](../docs/SECTION_MATERIALS.md) for how to wire a material and
-for the four ways it silently fails to cut.
-
-| File | Goes to | What it is |
-|---|---|---|
-| `Materials/MF/MF_SectionMask.uasset` | `/Game/New_Explorer/Materials/MF/` | Reads the collection, returns `Mask` (dithered) and `Mask Hard` (clean 0/1 — use this one) |
-| `Materials/MPC/SectionMask_MPC.uasset` | `/Game/New_Explorer/Materials/MPC/` | `Location`, `Bounds`, `Rotation_Z`, `Mask_Intensity`, `Mask_Falloff` |
-
-Unlike `Emissive_MPC` this collection is **not** repointable: `MF_SectionMask` references it
-directly, so both files travel together. The project also contains an older `/Game/ArchVizExplorer/`
-copy of each — a material wired to those compiles, shows no error and never cuts.
-
-### The parked volume — a level step, not an asset
-
-`Reset_SectionView` does not disable the cut. Nothing ever writes `Mask_Intensity`, so the cut is
-permanently armed and "off" means moving the box somewhere empty: whatever `BP_Explorer_Pawn →
-SectionView_Initial_Volume` points at.
-
-That reference is a level actor, so it cannot be shipped here. Recreate it:
-
-1. Place a `TriggerVolume` over the building, sized to cover it in X and Y.
-2. Raise it until `Z − Bounds` clears **every** piece of geometry in its XY footprint — remember the
-   Blueprint passes `Bounds` as the full extent, so the box is `Location ± Bounds`, twice the
-   actor's half-extent.
-3. Assign it to `SectionView_Initial_Volume` on the level's `BP_Explorer_Pawn`.
-
-Parking it directly above the building, rather than off to the side, is also what makes the reveal
-animate top-to-bottom — the box travels from here to the selected floor, so a volume parked at the
-world origin sends it flying sideways across the map instead.
-
-This needs revisiting whenever the building gets taller: added floors are exactly what pushes
-geometry up into a volume that used to clear it, and the symptom is the cut never coming back on
-CHIQISH or on any nav button. The shipped defaults in the collection park it at
-`Z 20000` with `Bounds Z 2152`, clearing this project's tallest geometry at `Z 15029` — reposition
-for your own level.
-
-## Section / reveal materials
-
-| File | Goes to | Why |
-|---|---|---|
-| `New_Explorer/Materials/MPC/SectionMask_MPC.uasset` | `/Game/New_Explorer/Materials/MPC/` | Section cut box + `UpperZ` / `FacadeZ` / `WallZ` reveal heights |
-| `New_Explorer/Materials/MF/MF_SectionMask.uasset` | `/Game/New_Explorer/Materials/MF/` | Section cut, multiplied by the reveal mask |
-| `Lanessa/MF_LanessaBuildReveal.uasset` | `/Game/Lanessa/` | Reveal mask read from Custom Primitive Data index 20 |
-| `MSPresets/M_MS_Surface_Material_VT/…` | `/Game/MSPresets/M_MS_Surface_Material_VT/` | Megascans master, now Masked with the section cut |
-| `ArchvisDefault/Model/avto_skm/AutomotiveMaterials/Masters/M_Glass_Master.uasset` | same path under `/Game` | Thin-translucent glass that fully disappears when cut |
-
-Node-level details: `docs/YANGILIKLAR_2026-09-26.md`.
-
 ## Textures loaded by absolute path
 
 | File | Goes to | Loaded by |
@@ -98,8 +46,7 @@ nothing rather than erroring.
 - **The level.** `/Game/New_Explorer/Maps/Demonstration_01` is ~7 MB and changes constantly. It
   matters because the interior room bar and the walk bar fill themselves from its `APlayerStart`
   actors — membership comes from the actor tag (`Room` / `Walk`), the label from *Player Start Tag*.
-  Recreate those tags rather than shipping the map. The section's parked `TriggerVolume` and the
-  `BP_Explorer_Pawn` reference to it are level actors too — see *The parked volume* above.
+  Recreate those tags rather than shipping the map.
 - **`/Game/New_Explorer/Materials/MPC/Emissive_MPC`** — the collection `LanessaDayNight` writes its
   `StreetLights` scalar into. Repointable in `Project Settings → Plugins → Lanessa Day/Night`, so a
   different project can use its own.
